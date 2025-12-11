@@ -12,6 +12,7 @@ type PollResult = {
   type: string
   summary: string
   chartData?: { label: string; value: number; total: number }[]
+  unit?: string
 }
 
 export default function ResultsPage() {
@@ -72,30 +73,38 @@ export default function ResultsPage() {
             }))
 
           } else if (poll.type === 'ranking') {
-            // Simple aggregation: Count how many times each option was ranked #1
-            const firstPlaceCounts: Record<string, number> = {}
+            // Borda Count Aggregation
+            const numOptions = poll.options.length
+            const optionScores: Record<string, number> = {}
+            
+            // Initialize scores
+            poll.options.forEach(opt => optionScores[opt.id] = 0)
+
             pollVotes.forEach(v => {
               const rankMap = v.value
               Object.entries(rankMap).forEach(([optId, rank]) => {
-                if (String(rank) === '1') {
-                  firstPlaceCounts[optId] = (firstPlaceCounts[optId] || 0) + 1
+                const r = Number(rank)
+                if (r > 0 && r <= numOptions) {
+                   // Rank 1 = N points, Rank N = 1 point
+                   optionScores[optId] = (optionScores[optId] || 0) + (numOptions - r + 1)
                 }
               })
             })
 
             const sortedOptions = poll.options.sort((a, b) => {
-              const countA = firstPlaceCounts[a.id] || 0
-              const countB = firstPlaceCounts[b.id] || 0
-              return countB - countA
+              return (optionScores[b.id] || 0) - (optionScores[a.id] || 0)
             })
+
+            // Max possible score for an option is if everyone ranked it #1
+            const maxPoints = pollVotes.length * numOptions
 
             chartData = sortedOptions.map(opt => ({
               label: opt.text,
-              value: firstPlaceCounts[opt.id] || 0,
-              total: pollVotes.length
+              value: optionScores[opt.id] || 0,
+              total: maxPoints
             }))
             
-            summary = 'Rankings based on #1 votes'
+            summary = `Rankings based on Borda Count (Rank 1 = ${numOptions} pts)`
           }
         }
 
@@ -104,7 +113,8 @@ export default function ResultsPage() {
           question: poll.question,
           type: poll.type,
           summary,
-          chartData
+          chartData,
+          unit: poll.type === 'ranking' ? 'pts' : 'votes'
         }
       })
 
@@ -142,7 +152,7 @@ export default function ResultsPage() {
                     <div key={i} className="relative">
                       <div className="flex justify-between text-sm mb-1">
                         <span className="font-medium">{item.label}</span>
-                        <span className="text-gray-500">{item.value} votes ({percentage}%)</span>
+                        <span className="text-gray-500">{item.value} {res.unit || 'votes'} ({percentage}%)</span>
                       </div>
                       <div className="w-full bg-gray-200 rounded-full h-2.5">
                         <div 
