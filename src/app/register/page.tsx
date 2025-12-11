@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, Suspense } from 'react'
+import { useState, Suspense, useEffect } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { supabase } from '@/lib/supabaseClient'
 
@@ -15,6 +15,60 @@ function RegisterForm() {
     phone: '',
     password: ''
   })
+  const [currentUserEmail, setCurrentUserEmail] = useState<string | null>(null)
+
+  useEffect(() => {
+    const email = localStorage.getItem('user_email')
+    if (email) {
+      setCurrentUserEmail(email)
+    }
+  }, [])
+
+  const handleQuickSubmit = async () => {
+    if (!currentUserEmail || !eventId) return
+
+    const pendingVotes = localStorage.getItem(`pending_votes_${eventId}`)
+    if (pendingVotes) {
+        const votesMap = JSON.parse(pendingVotes)
+        const pollIds = Object.keys(votesMap)
+
+        // Check for existing votes
+        const { data: existingVotes } = await supabase
+          .from('votes')
+          .select('id')
+          .in('poll_id', pollIds)
+          .eq('user_email', currentUserEmail)
+
+        if (existingVotes && existingVotes.length > 0) {
+          alert('You have already voted for this event.')
+          localStorage.removeItem(`pending_votes_${eventId}`)
+          router.push(`/events/${eventId}/results`)
+          return
+        }
+
+        const votesToInsert = Object.entries(votesMap).map(([pollId, value]) => ({
+          poll_id: pollId,
+          user_email: currentUserEmail,
+          value: value
+        }))
+
+        const { error: voteError } = await supabase
+          .from('votes')
+          .insert(votesToInsert)
+        
+        if (voteError) {
+          console.error('Error saving votes:', voteError)
+          alert('Error saving votes')
+        } else {
+          localStorage.removeItem(`pending_votes_${eventId}`)
+          alert('Vote submitted successfully!')
+          router.push(`/events/${eventId}/results`)
+        }
+    } else {
+        // No pending votes, just redirect
+        router.push(`/events/${eventId}/results`)
+    }
+  }
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setFormData({ ...formData, [e.target.name]: e.target.value })
@@ -84,6 +138,32 @@ function RegisterForm() {
 
     alert('Thank you for voting!')
     router.push(eventId ? `/events/${eventId}/results` : '/')
+  }
+
+  if (currentUserEmail) {
+    return (
+      <div className="w-full max-w-md text-center bg-white p-8 rounded shadow">
+        <h2 className="text-2xl font-bold mb-4">Welcome back!</h2>
+        <p className="mb-6 text-gray-600">You are logged in as <br/><span className="font-bold text-black text-lg">{currentUserEmail}</span></p>
+        
+        <button
+          onClick={handleQuickSubmit}
+          className="bg-blue-600 hover:bg-blue-800 text-white font-bold py-3 px-6 rounded w-full mb-4 transition-colors"
+        >
+          Submit Vote as {currentUserEmail}
+        </button>
+        
+        <button
+          onClick={() => {
+            localStorage.removeItem('user_email')
+            setCurrentUserEmail(null)
+          }}
+          className="text-gray-500 hover:text-gray-700 underline text-sm"
+        >
+          Not you? Log out
+        </button>
+      </div>
+    )
   }
 
   return (
